@@ -1,0 +1,116 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: packer-qemu-mcp-server
+    main: ./cmd/packer-qemu-mcp-server
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+      # Nothing to resolve at runtime but system calls. CGO_ENABLED=0 already
+      # implies both of these; naming them means a build with cgo turned back
+      # on cannot quietly start linking libc for name resolution or for
+      # looking up a user.
+      - -tags=netgo,osusergo
+    ldflags:
+      - "-s -w -X main.version={{ .Version }}"
+    # Every platform the QEMU plugin publishes a binary for, minus Windows,
+    # plus illumos. The plugin rather than Packer itself: a build this server
+    # can watch is a build the plugin can run, so the plugin is what bounds
+    # where this is of any use. Windows is out because this holds a
+    # pseudo-terminal for the build and talks over unix sockets, and neither
+    # has a Windows equivalent.
+    #
+    # illumos is not on the plugin's list and is here anyway. A Solaris
+    # binary runs on illumos — CI proves it on every run, on an OmniOS guest —
+    # so this is not needed to serve illumos. It is Go's own target for that
+    # kernel, it is the one CI can actually exercise, and dropping Solaris in
+    # its favour would leave Oracle Solaris with nothing.
+    goos:
+      - darwin
+      - freebsd
+      - illumos
+      - linux
+      - netbsd
+      - openbsd
+      - solaris
+    goarch:
+      - "386"
+      - amd64
+      - arm
+      - arm64
+      - ppc64le
+    # goreleaser takes the product of those two lists; these are the pairs
+    # not shipped, which is what keeps the count at 18.
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: ppc64le
+      - goos: freebsd
+        goarch: arm64
+      - goos: freebsd
+        goarch: ppc64le
+      - goos: illumos
+        goarch: "386"
+      - goos: illumos
+        goarch: arm
+      - goos: illumos
+        goarch: arm64
+      - goos: illumos
+        goarch: ppc64le
+      - goos: netbsd
+        goarch: arm64
+      - goos: netbsd
+        goarch: ppc64le
+      - goos: openbsd
+        goarch: arm64
+      - goos: openbsd
+        goarch: ppc64le
+      - goos: solaris
+        goarch: "386"
+      - goos: solaris
+        goarch: arm
+      - goos: solaris
+        goarch: arm64
+      - goos: solaris
+        goarch: ppc64le
+    binary: packer-qemu-mcp-server
+
+archives:
+  - id: packer-qemu-mcp-server
+    ids:
+      - packer-qemu-mcp-server
+    formats:
+      - tar.gz
+    name_template: "packer-qemu-mcp-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "packer-qemu-mcp-server_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+release:
+  github:
+    owner: cross-platform-actions
+    name: packer-qemu-mcp-server
+  name_template: "packer-qemu-mcp-server {{ .Version }}"
+  # v1.2.3-rc1 is a pre-release; v1.2.3 is not. GoReleaser marks neither
+  # unless asked.
+  prerelease: auto
+  # The release waits for someone to read what the tag produced before it is
+  # visible. Publishing is a click in the GitHub UI.
+  draft: true
+
+# The release notes are the changelog's entry for that version, which the
+# release workflow reads out of the file and passes to `--release-notes`. A
+# list of commit subjects generated from the tag range would only be a second,
+# worse description of the same release.
+changelog:
+  disable: true

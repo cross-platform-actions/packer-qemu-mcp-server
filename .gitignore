@@ -1,0 +1,10 @@
+# Built binary (produced by goreleaser / `go build`)
+/packer-qemu-mcp-server
+packer-qemu-mcp-server_*
+
+# goreleaser output
+/dist/
+
+# Go test/coverage artifacts
+*.test
+*.out

@@ -1,0 +1,41 @@
+version: "2"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unconvert
+    - unused
+  exclusions:
+    rules:
+      # Closing a file opened for reading, or a descriptor handed to a child,
+      # cannot report anything actionable. Every Close() here is one of those.
+      - linters:
+          - errcheck
+        source: "\\.Close\\(\\)"
+      # Test helpers clean up on a best-effort basis; a failure to tear down
+      # surfaces as the next assertion failing, not as a returned error.
+      - linters:
+          - errcheck
+        path: ".*_test\\.go"
+  settings:
+    errcheck:
+      exclude-functions:
+        - "fmt:.*"
+        - "io:Close"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+run:
+  timeout: 10m
+  tests: true

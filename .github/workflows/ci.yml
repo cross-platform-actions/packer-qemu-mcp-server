@@ -1,0 +1,264 @@
+name: CI
+
+'on':
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.out
+
+  # Every platform released, so a tag cannot be the first time a target is
+  # tried. The same list as .goreleaser.yml: every platform the QEMU plugin
+  # publishes for except Windows, plus illumos.
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - darwin/amd64
+          - darwin/arm64
+          - freebsd/386
+          - freebsd/amd64
+          - freebsd/arm
+          - illumos/amd64
+          - linux/386
+          - linux/amd64
+          - linux/arm
+          - linux/arm64
+          - linux/ppc64le
+          - netbsd/386
+          - netbsd/amd64
+          - netbsd/arm
+          - openbsd/386
+          - openbsd/amd64
+          - openbsd/arm
+          - solaris/amd64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          TARGET: ${{ matrix.target }}
+        run: |
+          GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}" \
+            go build -tags=netgo,osusergo -trimpath \
+            -o packer-qemu-mcp-server ./cmd/packer-qemu-mcp-server
+
+      # A Linux binary is meant to need nothing at runtime but the kernel, so
+      # that it runs on any distribution and inside an empty container. Turning
+      # cgo back on would link libc for name resolution without saying so.
+      - name: Check it needs nothing but the kernel
+        if: startsWith(matrix.target, 'linux/')
+        run: |
+          described=$(file -b packer-qemu-mcp-server)
+          echo "$described"
+          case "$described" in
+            *"statically linked"*) ;;
+            *) echo "::error::not statically linked"; exit 1 ;;
+          esac
+
+  # The Linux architectures that are not the runner's. cross-platform-actions
+  # has no Linux support and needs none: Docker runs another architecture's
+  # container under QEMU, which is all this needs.
+  #
+  # As with the other platforms, the test binaries are cross-compiled here and
+  # only run in the container. They are static, so the container needs nothing
+  # but a shell for the fake builds the tests write.
+  test-linux-architectures:
+    name: Test (linux/${{ matrix.arch.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - goarch: "386"
+            platform: linux/386
+          - goarch: arm
+            # The released binary is built for ARMv6, which an ARMv7 container
+            # runs; Debian publishes no ARMv6 image.
+            goarm: "6"
+            platform: linux/arm/v7
+          - goarch: arm64
+            platform: linux/arm64
+          - goarch: ppc64le
+            platform: linux/ppc64le
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Compile the tests for linux/${{ matrix.arch.goarch }}
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch.goarch }}
+          GOARM: ${{ matrix.arch.goarm }}
+        run: |
+          mkdir -p tests
+          for package in $(go list ./... | grep -v /qmptest); do
+            go test -c -o "tests/$(basename "$package").test" "$package"
+          done
+          ls -l tests
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.arch.platform }}
+
+      - name: Run them on ${{ matrix.arch.platform }}
+        run: |
+          docker run \
+            --rm \
+            -v "$(pwd)/tests:/tests" \
+            -w /tests \
+            --platform ${{ matrix.arch.platform }} \
+            debian:unstable-slim \
+            sh -c 'uname -m; for test in *.test; do echo "==> $test"; ./"$test" -test.timeout 30m || exit 1; done'
+
+  # The BSDs and illumos have no GitHub runner, so the tests go to them in a
+  # virtual machine instead. The test binaries are cross-compiled here and sent
+  # in, which spares the guest a Go toolchain: every one of these packages
+  # drives a pseudo-terminal and unix sockets, and that is what is worth
+  # exercising on a foreign kernel.
+  test-other-platforms:
+    name: Test (${{ matrix.os.name }} ${{ matrix.os.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - name: freebsd
+            version: '15.1'
+            targets: freebsd
+          - name: netbsd
+            version: '11.0'
+            targets: netbsd
+          - name: openbsd
+            version: '7.9'
+            targets: openbsd
+          # Both, on the one guest that can run either. solaris is what the
+          # release ships, and an OmniOS guest is the closest thing to a
+          # Solaris machine that CI can have: illumos is a fork of OpenSolaris
+          # and keeps its userland ABI, and both binaries ask the same loader
+          # for the same three libraries. illumos is built as well, as Go's own
+          # target for this kernel, so that a failure says which of the two is
+          # at fault rather than only that something is.
+          - name: omnios
+            version: 'r151056'
+            targets: solaris illumos
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Compile the tests for ${{ matrix.os.targets }}
+        env:
+          CGO_ENABLED: '0'
+          GOARCH: amd64
+          TARGETS: ${{ matrix.os.targets }}
+        run: |
+          for goos in $TARGETS; do
+            mkdir -p "tests/$goos"
+            for package in $(go list ./... | grep -v /qmptest); do
+              GOOS="$goos" go test -c \
+                -o "tests/$goos/$(basename "$package").test" "$package"
+            done
+          done
+          ls -lR tests
+
+      - name: Run them on ${{ matrix.os.name }}
+        uses: cross-platform-actions/action@v1.4.0
+        with:
+          operating_system: ${{ matrix.os.name }}
+          version: ${{ matrix.os.version }}
+          architecture: x86-64
+          shutdown_vm: true
+          run: |
+            set -e
+            uname -a
+            for directory in tests/*; do
+              echo "### built for $(basename "$directory")"
+              for test in "$directory"/*.test; do
+                echo "==> $test"
+                ./"$test" -test.timeout 20m
+              done
+            done

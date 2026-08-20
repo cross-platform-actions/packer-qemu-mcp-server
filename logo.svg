@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+  <defs>
+    <linearGradient id="tile" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1DA1F2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0D47A1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Terminal box -->
+  <rect x="10" y="10" width="100" height="100" rx="12" ry="12" fill="url(#tile)" />
+
+  <!-- Terminal header dots -->
+  <circle cx="30" cy="28" r="4" fill="#ff5f56" />
+  <circle cx="44" cy="28" r="4" fill="#ffbd2e" />
+  <circle cx="58" cy="28" r="4" fill="#27c93f" />
+
+  <!-- A boot command as a sequence of steps, stopped at the one that was asked
+       for. Every step before it is answered on the way past. -->
+  <rect x="24" y="69" width="72" height="3" rx="1.5" fill="#ffffff" opacity="0.5" />
+  <circle cx="27" cy="70.5" r="3.5" fill="#ffffff" opacity="0.6" />
+  <circle cx="41" cy="70.5" r="3.5" fill="#ffffff" opacity="0.6" />
+  <circle cx="55" cy="70.5" r="3.5" fill="#ffffff" opacity="0.6" />
+  <circle cx="69" cy="70.5" r="4.5" fill="#FFB300" />
+  <circle cx="69" cy="70.5" r="10" fill="none" stroke="#FFB300" stroke-width="3" />
+  <circle cx="83" cy="70.5" r="3.5" fill="#ffffff" opacity="0.6" />
+  <circle cx="95" cy="70.5" r="3.5" fill="#ffffff" opacity="0.6" />
+
+  <!-- Wordmark -->
+  <text x="130" y="55" font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="bold" fill="#1A1A2E">packer-qemu</text>
+  <text x="130" y="93" font-family="monospace" font-size="30" font-weight="bold" fill="#0D47A1">MCP SERVER</text>
+</svg>
